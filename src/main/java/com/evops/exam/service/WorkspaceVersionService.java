@@ -1,0 +1,442 @@
+package com.evops.exam.service;
+
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.evops.common.BusinessException;
+import com.evops.common.OperatorHolder;
+import com.evops.exam.common.ExamConstants;
+import com.evops.exam.entity.AdmissionTicket;
+import com.evops.exam.entity.ExamBatch;
+import com.evops.exam.entity.ExamRoom;
+import com.evops.exam.entity.ExamSite;
+import com.evops.exam.entity.FinalConclusion;
+import com.evops.exam.entity.Registration;
+import com.evops.exam.entity.RegistrationCorrection;
+import com.evops.exam.entity.StageResult;
+import com.evops.exam.entity.WorkspaceVersion;
+import com.evops.exam.entity.WorkspaceVersionEvent;
+import com.evops.exam.mapper.ArrangementRunMapper;
+import com.evops.exam.entity.ArrangementRun;
+import com.evops.grade.entity.ExamScore;
+import com.evops.grade.entity.GradeRule;
+import com.evops.grade.entity.GradeRuleVersion;
+import com.evops.grade.entity.ScoreChangeLog;
+import com.evops.grade.entity.ScoreNotification;
+import com.evops.grade.entity.ScoreReview;
+import com.evops.mixalgo.entity.MixAlgorithm;
+import com.evops.mixalgo.entity.MixAlgorithmVersion;
+import com.evops.mixalgo.mapper.MixAlgorithmMapper;
+import com.evops.mixalgo.mapper.MixAlgorithmVersionMapper;
+import com.evops.grade.mapper.ExamScoreMapper;
+import com.evops.grade.mapper.GradeRuleMapper;
+import com.evops.grade.mapper.GradeRuleVersionMapper;
+import com.evops.grade.mapper.ScoreChangeLogMapper;
+import com.evops.grade.mapper.ScoreNotificationMapper;
+import com.evops.grade.mapper.ScoreReviewMapper;
+import com.evops.exam.mapper.AdmissionTicketMapper;
+import com.evops.exam.mapper.ExamBatchMapper;
+import com.evops.exam.mapper.ExamRoomMapper;
+import com.evops.exam.mapper.ExamSiteMapper;
+import com.evops.exam.mapper.FinalConclusionMapper;
+import com.evops.exam.mapper.RegistrationCorrectionMapper;
+import com.evops.exam.mapper.RegistrationMapper;
+import com.evops.exam.mapper.RestoreMapper;
+import com.evops.exam.mapper.StageResultMapper;
+import com.evops.exam.mapper.WorkspaceVersionEventMapper;
+import com.evops.exam.mapper.WorkspaceVersionMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * 工作区版本管理：
+ * - SNAPSHOT 快照只追加，永不覆盖、不删除；
+ * - SELECT 版本选择只切换当前标记，不动业务数据；
+ * - ROLLBACK 状态回退：按快照还原业务表，并生成一条新的 ROLLBACK 版本，
+ *   原版本原样保留；CREATE/SELECT/ROLLBACK 全部进事件表，回退不清事件。
+ */
+@Service
+public class WorkspaceVersionService {
+
+    private final WorkspaceVersionMapper versionMapper;
+    private final WorkspaceVersionEventMapper eventMapper;
+    private final ExamSiteMapper siteMapper;
+    private final ExamRoomMapper roomMapper;
+    private final ExamBatchMapper batchMapper;
+    private final RegistrationMapper registrationMapper;
+    private final RegistrationCorrectionMapper correctionMapper;
+    private final AdmissionTicketMapper ticketMapper;
+    private final StageResultMapper stageResultMapper;
+    private final FinalConclusionMapper conclusionMapper;
+    private final GradeRuleMapper gradeRuleMapper;
+    private final GradeRuleVersionMapper gradeRuleVersionMapper;
+    private final ExamScoreMapper scoreMapper;
+    private final ScoreReviewMapper reviewMapper;
+    private final ScoreChangeLogMapper changeLogMapper;
+    private final ScoreNotificationMapper notificationMapper;
+    private final MixAlgorithmMapper mixAlgorithmMapper;
+    private final MixAlgorithmVersionMapper mixVersionMapper;
+    private final ArrangementRunMapper arrangementRunMapper;
+    private final ObjectMapper objectMapper;
+    private final RestoreMapper restoreMapper;
+
+    public WorkspaceVersionService(WorkspaceVersionMapper versionMapper,
+                                   WorkspaceVersionEventMapper eventMapper,
+                                   ExamSiteMapper siteMapper,
+                                   ExamRoomMapper roomMapper,
+                                   ExamBatchMapper batchMapper,
+                                   RegistrationMapper registrationMapper,
+                                   RegistrationCorrectionMapper correctionMapper,
+                                   AdmissionTicketMapper ticketMapper,
+                                   StageResultMapper stageResultMapper,
+                                   FinalConclusionMapper conclusionMapper,
+                                   GradeRuleMapper gradeRuleMapper,
+                                   GradeRuleVersionMapper gradeRuleVersionMapper,
+                                   ExamScoreMapper scoreMapper,
+                                   ScoreReviewMapper reviewMapper,
+                                   ScoreChangeLogMapper changeLogMapper,
+                                   ScoreNotificationMapper notificationMapper,
+                                   MixAlgorithmMapper mixAlgorithmMapper,
+                                   MixAlgorithmVersionMapper mixVersionMapper,
+                                   ArrangementRunMapper arrangementRunMapper,
+                                   ObjectMapper objectMapper,
+                                   RestoreMapper restoreMapper) {
+        this.versionMapper = versionMapper;
+        this.eventMapper = eventMapper;
+        this.siteMapper = siteMapper;
+        this.roomMapper = roomMapper;
+        this.batchMapper = batchMapper;
+        this.registrationMapper = registrationMapper;
+        this.correctionMapper = correctionMapper;
+        this.ticketMapper = ticketMapper;
+        this.stageResultMapper = stageResultMapper;
+        this.conclusionMapper = conclusionMapper;
+        this.gradeRuleMapper = gradeRuleMapper;
+        this.gradeRuleVersionMapper = gradeRuleVersionMapper;
+        this.scoreMapper = scoreMapper;
+        this.reviewMapper = reviewMapper;
+        this.changeLogMapper = changeLogMapper;
+        this.notificationMapper = notificationMapper;
+        this.mixAlgorithmMapper = mixAlgorithmMapper;
+        this.mixVersionMapper = mixVersionMapper;
+        this.arrangementRunMapper = arrangementRunMapper;
+        this.objectMapper = objectMapper;
+        this.restoreMapper = restoreMapper;
+    }
+
+    // ---------- 创建快照 ----------
+
+    @Transactional
+    public WorkspaceVersion createSnapshot(String label, String remark) {
+        String operator = OperatorHolder.current();
+        LocalDateTime now = LocalDateTime.now();
+        String snapshot = capture();
+
+        WorkspaceVersion version = new WorkspaceVersion();
+        version.setVersionNo(nextVersionNo());
+        version.setLabel(label == null || label.trim().isEmpty() ? "工作区快照 " + now : label.trim());
+        version.setKind(ExamConstants.VERSION_KIND_SNAPSHOT);
+        version.setIsCurrent(false);
+        version.setSnapshot(snapshot);
+        version.setRemark(remark);
+        version.setOperator(operator);
+        versionMapper.insert(version);
+
+        markCurrent(version, operator, "CREATE", "创建快照 " + version.getVersionNo());
+        return version;
+    }
+
+    // ---------- 版本选择（只切当前标记，留事件） ----------
+
+    @Transactional
+    public WorkspaceVersion selectVersion(String versionNo) {
+        WorkspaceVersion version = requireVersion(versionNo);
+        String operator = OperatorHolder.current();
+        markCurrent(version, operator, "SELECT", "选择版本 " + versionNo + " 作为当前版本（业务数据未变动）");
+        return version;
+    }
+
+    // ---------- 状态回退（还原 + 生成新版本） ----------
+
+    @Transactional
+    public WorkspaceVersion rollback(String versionNo, String remark) {
+        WorkspaceVersion source = requireVersion(versionNo);
+        String operator = OperatorHolder.current();
+
+        restore(source.getSnapshot());
+
+        WorkspaceVersion version = new WorkspaceVersion();
+        version.setVersionNo(nextVersionNo());
+        version.setLabel("回退自 " + source.getVersionNo());
+        version.setKind(ExamConstants.VERSION_KIND_ROLLBACK);
+        version.setRestoredFromVersion(source.getVersionNo());
+        version.setIsCurrent(false);
+        version.setSnapshot(source.getSnapshot());
+        version.setRemark(remark);
+        version.setOperator(operator);
+        versionMapper.insert(version);
+
+        markCurrent(version, operator, "ROLLBACK",
+                "按 " + source.getVersionNo() + " 还原业务状态并生成回退版本 " + version.getVersionNo());
+        return version;
+    }
+
+    // ---------- 查询 ----------
+
+    @Transactional(readOnly = true)
+    public List<WorkspaceVersion> listVersions(boolean includeSnapshot) {
+        QueryWrapper<WorkspaceVersion> wrapper = new QueryWrapper<WorkspaceVersion>()
+                .orderByDesc("id");
+        if (!includeSnapshot) {
+            wrapper.select("id", "version_no", "label", "kind", "restored_from_version",
+                    "is_current", "remark", "operator",
+                    "create_by", "create_time", "update_by", "update_time");
+        }
+        return versionMapper.selectList(wrapper);
+    }
+
+    @Transactional(readOnly = true)
+    public WorkspaceVersion getVersion(String versionNo, boolean includeSnapshot) {
+        WorkspaceVersion version = requireVersion(versionNo);
+        if (!includeSnapshot) {
+            version.setSnapshot(null);
+        }
+        return version;
+    }
+
+    @Transactional(readOnly = true)
+    public WorkspaceVersion currentVersion() {
+        WorkspaceVersion version = versionMapper.selectOne(
+                new QueryWrapper<WorkspaceVersion>().eq("is_current", true));
+        if (version != null) {
+            version.setSnapshot(null);
+        }
+        return version;
+    }
+
+    @Transactional(readOnly = true)
+    public List<WorkspaceVersionEvent> listEvents(String versionNo) {
+        QueryWrapper<WorkspaceVersionEvent> wrapper = new QueryWrapper<>();
+        if (versionNo != null && !versionNo.trim().isEmpty()) {
+            wrapper.eq("version_no", versionNo.trim());
+        }
+        wrapper.orderByAsc("event_at", "id");
+        return eventMapper.selectList(wrapper);
+    }
+
+    // ---------- 内部：快照采集与还原 ----------
+
+    private String capture() {
+        try {
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("capturedAt", LocalDateTime.now().toString());
+            data.put("sites", siteMapper.selectList(null));
+            data.put("rooms", roomMapper.selectList(null));
+            data.put("batches", batchMapper.selectList(null));
+            data.put("registrations", registrationMapper.selectList(null));
+            data.put("corrections", correctionMapper.selectList(null));
+            data.put("tickets", ticketMapper.selectList(null));
+            data.put("stageResults", stageResultMapper.selectList(null));
+            data.put("conclusions", conclusionMapper.selectList(null));
+            data.put("gradeRules", gradeRuleMapper.selectList(null));
+            data.put("gradeRuleVersions", gradeRuleVersionMapper.selectList(null));
+            data.put("scores", scoreMapper.selectList(null));
+            data.put("reviews", reviewMapper.selectList(null));
+            data.put("changeLogs", changeLogMapper.selectList(null));
+            data.put("notifications", notificationMapper.selectList(null));
+            data.put("mixAlgorithms", mixAlgorithmMapper.selectList(null));
+            data.put("mixVersions", mixVersionMapper.selectList(null));
+            data.put("arrangementRuns", arrangementRunMapper.selectList(null));
+            return objectMapper.writeValueAsString(data);
+        } catch (Exception e) {
+            throw new BusinessException("SNAPSHOT_FAILED", "生成工作区快照失败：" + e.getMessage());
+        }
+    }
+
+    private void restore(String snapshot) {
+        SnapshotData data;
+        try {
+            data = objectMapper.readValue(snapshot, SnapshotData.class);
+        } catch (Exception e) {
+            throw new BusinessException("SNAPSHOT_BROKEN", "快照内容无法解析，已取消回退：" + e.getMessage());
+        }
+
+        // 先清空业务表（版本表本身不动），再按快照原样写回。
+        // 用显式带主键的原生 INSERT：准考证、成绩等表的外键依赖原始 id，
+        // H2 的 GENERATED BY DEFAULT 允许指定 id 插入。
+        restoreMapper.clearNotifications();
+        restoreMapper.clearArrangementRuns();
+        restoreMapper.clearMixVersions();
+        restoreMapper.clearMixAlgorithms();
+        restoreMapper.clearChangeLogs();
+        restoreMapper.clearReviews();
+        restoreMapper.clearScores();
+        restoreMapper.clearGradeRuleVersions();
+        restoreMapper.clearGradeRules();
+        restoreMapper.clearConclusions();
+        restoreMapper.clearStageResults();
+        restoreMapper.clearTickets();
+        restoreMapper.clearCorrections();
+        restoreMapper.clearRegistrations();
+        restoreMapper.clearBatches();
+        restoreMapper.clearRooms();
+        restoreMapper.clearSites();
+
+        for (ExamSite s : nullSafe(data.sites)) {
+            restoreMapper.insertSite(s);
+        }
+        for (ExamRoom r : nullSafe(data.rooms)) {
+            restoreMapper.insertRoom(r);
+        }
+        for (ExamBatch b : nullSafe(data.batches)) {
+            restoreMapper.insertBatch(b);
+        }
+        for (Registration r : nullSafe(data.registrations)) {
+            restoreMapper.insertRegistration(r);
+        }
+        for (RegistrationCorrection c : nullSafe(data.corrections)) {
+            restoreMapper.insertCorrection(c);
+        }
+        for (AdmissionTicket t : nullSafe(data.tickets)) {
+            restoreMapper.insertTicket(t);
+        }
+        for (StageResult sr : nullSafe(data.stageResults)) {
+            restoreMapper.insertStageResult(sr);
+        }
+        for (FinalConclusion fc : nullSafe(data.conclusions)) {
+            restoreMapper.insertConclusion(fc);
+        }
+        for (GradeRule r : nullSafe(data.gradeRules)) {
+            restoreMapper.insertGradeRule(r);
+        }
+        for (GradeRuleVersion v : nullSafe(data.gradeRuleVersions)) {
+            restoreMapper.insertGradeRuleVersion(v);
+        }
+        for (ExamScore s : nullSafe(data.scores)) {
+            restoreMapper.insertScore(s);
+        }
+        for (ScoreReview r : nullSafe(data.reviews)) {
+            restoreMapper.insertReview(r);
+        }
+        for (ScoreChangeLog l : nullSafe(data.changeLogs)) {
+            restoreMapper.insertChangeLog(l);
+        }
+        for (ScoreNotification n : nullSafe(data.notifications)) {
+            restoreMapper.insertNotification(n);
+        }
+        for (MixAlgorithm a : nullSafe(data.mixAlgorithms)) {
+            restoreMapper.insertMixAlgorithm(a);
+        }
+        for (MixAlgorithmVersion v : nullSafe(data.mixVersions)) {
+            restoreMapper.insertMixVersion(v);
+        }
+        for (ArrangementRun r : nullSafe(data.arrangementRuns)) {
+            restoreMapper.insertArrangementRun(r);
+        }
+
+        // 显式插 id 不推进 IDENTITY，统一把序列重置到 MAX(id)+1，避免回退后新增撞主键
+        restoreMapper.restartSite(restoreMapper.maxSiteId() + 1);
+        restoreMapper.restartRoom(restoreMapper.maxRoomId() + 1);
+        restoreMapper.restartBatch(restoreMapper.maxBatchId() + 1);
+        restoreMapper.restartRegistration(restoreMapper.maxRegistrationId() + 1);
+        restoreMapper.restartCorrection(restoreMapper.maxCorrectionId() + 1);
+        restoreMapper.restartTicket(restoreMapper.maxTicketId() + 1);
+        restoreMapper.restartStageResult(restoreMapper.maxStageResultId() + 1);
+        restoreMapper.restartConclusion(restoreMapper.maxConclusionId() + 1);
+        restoreMapper.restartGradeRule(restoreMapper.maxGradeRuleId() + 1);
+        restoreMapper.restartGradeRuleVersion(restoreMapper.maxGradeRuleVersionId() + 1);
+        restoreMapper.restartScore(restoreMapper.maxScoreId() + 1);
+        restoreMapper.restartReview(restoreMapper.maxReviewId() + 1);
+        restoreMapper.restartChangeLog(restoreMapper.maxChangeLogId() + 1);
+        restoreMapper.restartNotification(restoreMapper.maxNotificationId() + 1);
+        restoreMapper.restartMixAlgorithm(restoreMapper.maxMixAlgorithmId() + 1);
+        restoreMapper.restartMixVersion(restoreMapper.maxMixVersionId() + 1);
+        restoreMapper.restartArrangementRun(restoreMapper.maxArrangementRunId() + 1);
+    }
+
+    private <T> List<T> nullSafe(List<T> list) {
+        return list == null ? new ArrayList<>() : list;
+    }
+
+    private WorkspaceVersion requireVersion(String versionNo) {
+        if (versionNo == null || versionNo.trim().isEmpty()) {
+            throw new BusinessException("VERSION_NO_REQUIRED", "版本号不能为空");
+        }
+        WorkspaceVersion version = versionMapper.selectOne(
+                new QueryWrapper<WorkspaceVersion>().eq("version_no", versionNo.trim()));
+        if (version == null) {
+            throw new BusinessException("VERSION_NOT_FOUND", "工作区版本不存在：" + versionNo.trim());
+        }
+        return version;
+    }
+
+    private void markCurrent(WorkspaceVersion target, String operator, String action, String detail) {
+        List<WorkspaceVersion> all = versionMapper.selectList(null);
+        for (WorkspaceVersion v : all) {
+            boolean should = v.getId().equals(target.getId());
+            if (Boolean.TRUE.equals(v.getIsCurrent()) != should) {
+                v.setIsCurrent(should);
+                versionMapper.updateById(v);
+            }
+        }
+        if (target.getIsCurrent() == null || !target.getIsCurrent()) {
+            target.setIsCurrent(true);
+            versionMapper.updateById(target);
+        }
+        recordEvent(target, action, detail, operator);
+    }
+
+    private void recordEvent(WorkspaceVersion version, String action, String detail, String operator) {
+        WorkspaceVersionEvent event = new WorkspaceVersionEvent();
+        event.setVersionId(version.getId());
+        event.setVersionNo(version.getVersionNo());
+        event.setAction(action);
+        event.setDetail(detail);
+        event.setOperator(operator);
+        event.setEventAt(LocalDateTime.now());
+        eventMapper.insert(event);
+    }
+
+    /** V + 递增序号；序号按现有版本最大值 +1，保证版本号不撞。 */
+    private String nextVersionNo() {
+        int max = 0;
+        for (WorkspaceVersion v : versionMapper.selectList(null)) {
+            String no = v.getVersionNo();
+            if (no != null && no.startsWith("V")) {
+                try {
+                    max = Math.max(max, Integer.parseInt(no.substring(1)));
+                } catch (NumberFormatException ignored) {
+                    // 非本规则版本号忽略
+                }
+            }
+        }
+        return "V" + (max + 1);
+    }
+
+    /** 快照反序列化结构。 */
+    public static class SnapshotData {
+        public String capturedAt;
+        public List<ExamSite> sites;
+        public List<ExamRoom> rooms;
+        public List<ExamBatch> batches;
+        public List<Registration> registrations;
+        public List<RegistrationCorrection> corrections;
+        public List<AdmissionTicket> tickets;
+        public List<StageResult> stageResults;
+        public List<FinalConclusion> conclusions;
+        public List<GradeRule> gradeRules;
+        public List<GradeRuleVersion> gradeRuleVersions;
+        public List<ExamScore> scores;
+        public List<ScoreReview> reviews;
+        public List<ScoreChangeLog> changeLogs;
+        public List<ScoreNotification> notifications;
+        public List<MixAlgorithm> mixAlgorithms;
+        public List<MixAlgorithmVersion> mixVersions;
+        public List<ArrangementRun> arrangementRuns;
+    }
+}
