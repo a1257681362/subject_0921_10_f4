@@ -144,3 +144,46 @@
 - 未编排批次导出返回 `ARRANGEMENT_RUN_NOT_FOUND`。
 
 > 新表 `t_mix_algorithm / t_mix_algorithm_version / t_arrangement_run` 已纳入工作区快照与回退；schema 版本号 `mix-1`。
+
+## 兼职监考聘任与结算工作区（appoint-1）
+
+把"聘任和结算"做进 evops-base：**监考随排班生成聘任 → 场次结束签到计津贴（角色不同标准不同）→ 缺勤不计费 → 换人留替换记录 → 月底一键出结算单（人事看全量、本人看自己）→ 确认锁定、要改走调整**。兼职老师对费有据可查，不再和人事窗口各执一本账。聘任记录分**模块（主表）/ 版本（只追加）/ 状态（当前版本）**三段。
+
+视图口径：所有接口仍走 Shiro HTTP Basic；请求头 **`X-Self-Code=<监考人员编码>`** 即"本人视图"（只返回本人聘任/版本/替换/结算明细），不传为人事全量视图；经办人仍由 `X-Operator` 记录。
+
+### 16. 监考人员与津贴标准（角色不同标准不同）
+
+- `POST /api/invigilators`、`GET /api/invigilators`：兼职监考人员（编码、姓名、默认角色 `CHIEF 主考 / INVIGILATOR 监考 / PATROL 巡考`、`staffKind`）。
+- `POST /api/invigilators/allowance-rates`、`GET .../allowance-rates?projectCode=&roleCode=`：按**项目 + 角色 + 生效区间**配置单场津贴；区间重叠或到期缺标准在生成聘任时报 `RATE_AMBIGUOUS / RATE_NOT_CONFIGURED`。
+- 津贴口径在**生成聘任（或换人接任）时冻结**进聘任版本（rateId/rateCode/金额），以后调价不改历史聘任。
+
+### 17. 监考随排班生成聘任（两步预检）
+
+- `POST /api/appointments/shifts/preview` → `POST /api/appointments/shifts`：请求 `{batchId, shiftStart?, shiftEnd?, assignments:[{roomId, roleCode?, invigilatorCode}]}`。
+  按批次把监考排进考场角色场次，**一条在岗排班生成一条聘任**（`t_invigilation_shift` + `t_appointment` + 首版 CREATE `t_appointment_version`）。
+  - 预检逐条列可生成 / 跳过与命中标准、金额；同考场可排多名同角色监考；同人同批次重复排班、同人多岗、考场不属于本考点等结构性问题**整批拒收**；已排班场次幂等跳过。
+- 聘任号 `AP + 批次编码 + 4 位流水`；排班与聘任 1:1。
+
+### 18. 聘任记录版本 / 状态（只追加）
+
+- 状态机：**APPOINTED 已聘任 → CHECKED_IN 已签到（计费）**；旁路 **ABSENT 缺勤（不计费）/ REPLACED 已换人 / CANCELLED 已取消**。
+- `POST /api/appointments/{id}/check-in`（可带 `signInAt`，缺省当前时间）：**场次结束签到后才计津贴**（billable=true），金额沿用聘任时冻结口径，结算周期按签到月归属。
+- `POST /api/appointments/{id}/absent?reason=`：未签到记缺勤，**缺勤不计费**；已签到（已计费）不能改记缺勤。
+- `POST /api/appointments/{id}/cancel?reason=`：场次取消，不计聘任计费（已签到计费的不能取消）。
+- 每次状态变化**追加一版** `t_appointment_version`，主表只切当前版本号与状态；`GET /api/appointments/{id}/versions` 查完整版本链。
+
+### 19. 换人（留替换记录）
+
+- `POST /api/appointments/{id}/replace`：`{toInvigilatorCode, reason}`。
+  一次换人：原持聘人追加 **REPLACED 版（不计本场费）**、接任者追加 **APPOINTED 新版**（按接任角色/场次日期重新冻结津贴），写一条 `t_appointment_replacement`（谁→谁、原因、经办、钟点），排班持聘人同步更新；接任者本批次已有在岗聘任则拒收。
+- `GET /api/appointments/replacements?batchId=`、`GET /api/appointments/{id}/replacements`：替换记录（本人视图只返回涉及本人者）。
+
+### 20. 月底一键结算单（人事全量 / 本人自己；确认锁定、调整留痕）
+
+- `POST /api/settlements/preview` → `POST /api/settlements`：请求 `{month:"yyyy-MM"（缺省当月）}`。
+  按**签到月**汇总区间内已签到（CHECKED_IN / billable）且未锁定的聘任，**一人一行**（场次、金额合计）。先预检看全量口径，确认生成 **DRAFT 草稿**；草稿可重复生成按最新签到重算。
+- `POST /api/settlements/{id}/confirm`：**确认后锁定**——计费聘任置 `settled` 并挂结算单（之后不能再签到/换人/取消），已确认月份不能重新生成结算单。
+- 查询：`GET /api/settlements[?month=]`；`GET /api/settlements/{id}`（人事返回全部明细，带 `X-Self-Code` 仅返回本人那一行，响应标 `view=HR_ALL/SELF`）；`GET /api/settlements/my-items[?month=]` 本人跨单只看自己；`GET /api/appointments[?batchId=&status=&invigilatorCode=]` 本人视图强制只看本人。
+- **要改走调整**：`POST /api/settlements/{id}/adjustments` `{invigilatorCode, adjustAmount(可正可负), reason}`，只追加 `t_settlement_adjustment`，本人明细与结算单应付额累加变动；`GET /api/settlements/{id}/adjustments` 查台账。未确认草稿不接受调整（直接重算即可）。
+
+> 新表 `t_invigilator / t_invigilator_allowance_rate / t_invigilation_shift / t_appointment / t_appointment_version / t_appointment_replacement / t_settlement / t_settlement_item / t_settlement_adjustment` 已纳入工作区快照与回退；schema 版本号 `appoint-1`。

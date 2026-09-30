@@ -9,6 +9,15 @@ import com.evops.exam.entity.ArrangementRun;
 import com.evops.exam.entity.Registration;
 import com.evops.exam.entity.RegistrationCorrection;
 import com.evops.exam.entity.StageResult;
+import com.evops.appoint.entity.Appointment;
+import com.evops.appoint.entity.AppointmentReplacement;
+import com.evops.appoint.entity.AppointmentVersion;
+import com.evops.appoint.entity.InvigilationShift;
+import com.evops.appoint.entity.Invigilator;
+import com.evops.appoint.entity.InvigilatorAllowanceRate;
+import com.evops.appoint.entity.Settlement;
+import com.evops.appoint.entity.SettlementAdjustment;
+import com.evops.appoint.entity.SettlementItem;
 import com.evops.mixalgo.entity.MixAlgorithm;
 import com.evops.mixalgo.entity.MixAlgorithmVersion;
 import com.evops.grade.entity.ExamScore;
@@ -40,6 +49,33 @@ public interface RestoreMapper {
 
     @Delete("DELETE FROM t_arrangement_run")
     void clearArrangementRuns();
+
+    @Delete("DELETE FROM t_settlement_adjustment")
+    void clearSettlementAdjustments();
+
+    @Delete("DELETE FROM t_settlement_item")
+    void clearSettlementItems();
+
+    @Delete("DELETE FROM t_settlement")
+    void clearSettlements();
+
+    @Delete("DELETE FROM t_appointment_replacement")
+    void clearAppointmentReplacements();
+
+    @Delete("DELETE FROM t_appointment_version")
+    void clearAppointmentVersions();
+
+    @Delete("DELETE FROM t_appointment")
+    void clearAppointments();
+
+    @Delete("DELETE FROM t_invigilation_shift")
+    void clearInvigilationShifts();
+
+    @Delete("DELETE FROM t_invigilator_allowance_rate")
+    void clearAllowanceRates();
+
+    @Delete("DELETE FROM t_invigilator")
+    void clearInvigilators();
 
     @Delete("DELETE FROM t_mix_algorithm_version")
     void clearMixVersions();
@@ -200,6 +236,76 @@ public interface RestoreMapper {
             + "#{operator},#{executedAt},#{createBy},#{createTime},#{updateBy},#{updateTime})")
     void insertArrangementRun(ArrangementRun r);
 
+    @Insert("INSERT INTO t_invigilator (id, code, name, role_code, phone, staff_kind, status, remark, "
+            + "create_by, create_time, update_by, update_time) VALUES "
+            + "(#{id},#{code},#{name},#{roleCode},#{phone},#{staffKind},#{status},#{remark},"
+            + "#{createBy},#{createTime},#{updateBy},#{updateTime})")
+    void insertInvigilator(Invigilator i);
+
+    @Insert("INSERT INTO t_invigilator_allowance_rate (id, code, name, project_code, role_code, amount, "
+            + "effective_from, effective_to, status, remark, create_by, create_time, update_by, update_time) "
+            + "VALUES (#{id},#{code},#{name},#{projectCode},#{roleCode},#{amount},#{effectiveFrom},"
+            + "#{effectiveTo},#{status},#{remark},#{createBy},#{createTime},#{updateBy},#{updateTime})")
+    void insertAllowanceRate(InvigilatorAllowanceRate r);
+
+    @Insert("INSERT INTO t_invigilation_shift (id, batch_id, room_id, role_code, invigilator_id, shift_start, "
+            + "shift_end, status, remark, create_by, create_time, update_by, update_time) VALUES "
+            + "(#{id},#{batchId},#{roomId},#{roleCode},#{invigilatorId},#{shiftStart},#{shiftEnd},#{status},"
+            + "#{remark},#{createBy},#{createTime},#{updateBy},#{updateTime})")
+    void insertInvigilationShift(InvigilationShift s);
+
+    @Insert("INSERT INTO t_appointment (id, appointment_no, batch_id, room_id, shift_id, project_code, "
+            + "invigilator_id, invigilator_code, invigilator_name, role_code, current_version, status, "
+            + "rate_id, rate_code, allowance_amount, billable, sign_in_at, settled, settlement_id, remark, "
+            + "operator, create_by, create_time, update_by, update_time) VALUES "
+            + "(#{id},#{appointmentNo},#{batchId},#{roomId},#{shiftId},#{projectCode},#{invigilatorId},"
+            + "#{invigilatorCode},#{invigilatorName},#{roleCode},#{currentVersion},#{status},#{rateId},"
+            + "#{rateCode},#{allowanceAmount},#{billable},#{signInAt},#{settled},#{settlementId},#{remark},"
+            + "#{operator},#{createBy},#{createTime},#{updateBy},#{updateTime})")
+    void insertAppointment(Appointment a);
+
+    @Insert("INSERT INTO t_appointment_version (id, appointment_id, version_no, status, invigilator_id, "
+            + "invigilator_code, invigilator_name, role_code, rate_id, rate_code, allowance_amount, billable, "
+            + "change_type, change_reason, replacement_id, sign_in_at, operator, changed_at, "
+            + "create_by, create_time, update_by, update_time) VALUES "
+            + "(#{id},#{appointmentId},#{versionNo},#{status},#{invigilatorId},#{invigilatorCode},"
+            + "#{invigilatorName},#{roleCode},#{rateId},#{rateCode},#{allowanceAmount},#{billable},"
+            + "#{changeType},#{changeReason},#{replacementId},#{signInAt},#{operator},#{changedAt},"
+            + "#{createBy},#{createTime},#{updateBy},#{updateTime})")
+    void insertAppointmentVersion(AppointmentVersion v);
+
+    @Insert("INSERT INTO t_appointment_replacement (id, appointment_id, batch_id, from_invigilator_id, "
+            + "from_code, from_name, to_invigilator_id, to_code, to_name, role_code, reason, operator, "
+            + "replaced_at, create_by, create_time, update_by, update_time) VALUES "
+            + "(#{id},#{appointmentId},#{batchId},#{fromInvigilatorId},#{fromCode},#{fromName},"
+            + "#{toInvigilatorId},#{toCode},#{toName},#{roleCode},#{reason},#{operator},#{replacedAt},"
+            + "#{createBy},#{createTime},#{updateBy},#{updateTime})")
+    void insertAppointmentReplacement(AppointmentReplacement r);
+
+    @Insert("INSERT INTO t_settlement (id, settlement_no, period_start, period_end, period_label, status, "
+            + "total_appointments, total_amount, payable_amount, adjust_count, remark, confirmed_by, "
+            + "confirmed_at, operator, create_by, create_time, update_by, update_time) VALUES "
+            + "(#{id},#{settlementNo},#{periodStart},#{periodEnd},#{periodLabel},#{status},"
+            + "#{totalAppointments},#{totalAmount},#{payableAmount},#{adjustCount},#{remark},"
+            + "#{confirmedBy},#{confirmedAt},#{operator},#{createBy},#{createTime},#{updateBy},#{updateTime})")
+    void insertSettlement(Settlement s);
+
+    @Insert("INSERT INTO t_settlement_item (id, settlement_id, period_start, period_end, invigilator_id, "
+            + "invigilator_code, invigilator_name, session_count, amount, payable_amount, remark, "
+            + "create_by, create_time, update_by, update_time) VALUES "
+            + "(#{id},#{settlementId},#{periodStart},#{periodEnd},#{invigilatorId},#{invigilatorCode},"
+            + "#{invigilatorName},#{sessionCount},#{amount},#{payableAmount},#{remark},"
+            + "#{createBy},#{createTime},#{updateBy},#{updateTime})")
+    void insertSettlementItem(SettlementItem i);
+
+    @Insert("INSERT INTO t_settlement_adjustment (id, settlement_id, invigilator_id, invigilator_code, "
+            + "invigilator_name, adjust_amount, reason, operator, adjusted_at, "
+            + "create_by, create_time, update_by, update_time) VALUES "
+            + "(#{id},#{settlementId},#{invigilatorId},#{invigilatorCode},#{invigilatorName},"
+            + "#{adjustAmount},#{reason},#{operator},#{adjustedAt},"
+            + "#{createBy},#{createTime},#{updateBy},#{updateTime})")
+    void insertSettlementAdjustment(SettlementAdjustment a);
+
     // 显式插 id 后必须把 IDENTITY 序列推到最大 id 之上，否则后续新增会主键冲突
     @Select("SELECT COALESCE(MAX(id),0) FROM t_exam_site")
     long maxSiteId();
@@ -252,6 +358,33 @@ public interface RestoreMapper {
     @Select("SELECT COALESCE(MAX(id),0) FROM t_arrangement_run")
     long maxArrangementRunId();
 
+    @Select("SELECT COALESCE(MAX(id),0) FROM t_invigilator")
+    long maxInvigilatorId();
+
+    @Select("SELECT COALESCE(MAX(id),0) FROM t_invigilator_allowance_rate")
+    long maxAllowanceRateId();
+
+    @Select("SELECT COALESCE(MAX(id),0) FROM t_invigilation_shift")
+    long maxInvigilationShiftId();
+
+    @Select("SELECT COALESCE(MAX(id),0) FROM t_appointment")
+    long maxAppointmentId();
+
+    @Select("SELECT COALESCE(MAX(id),0) FROM t_appointment_version")
+    long maxAppointmentVersionId();
+
+    @Select("SELECT COALESCE(MAX(id),0) FROM t_appointment_replacement")
+    long maxAppointmentReplacementId();
+
+    @Select("SELECT COALESCE(MAX(id),0) FROM t_settlement")
+    long maxSettlementId();
+
+    @Select("SELECT COALESCE(MAX(id),0) FROM t_settlement_item")
+    long maxSettlementItemId();
+
+    @Select("SELECT COALESCE(MAX(id),0) FROM t_settlement_adjustment")
+    long maxSettlementAdjustmentId();
+
     @Update("ALTER TABLE t_exam_site ALTER COLUMN id RESTART WITH ${value}")
     void restartSite(@Param("value") long value);
 
@@ -302,4 +435,31 @@ public interface RestoreMapper {
 
     @Update("ALTER TABLE t_arrangement_run ALTER COLUMN id RESTART WITH ${value}")
     void restartArrangementRun(@Param("value") long value);
+
+    @Update("ALTER TABLE t_invigilator ALTER COLUMN id RESTART WITH ${value}")
+    void restartInvigilator(@Param("value") long value);
+
+    @Update("ALTER TABLE t_invigilator_allowance_rate ALTER COLUMN id RESTART WITH ${value}")
+    void restartAllowanceRate(@Param("value") long value);
+
+    @Update("ALTER TABLE t_invigilation_shift ALTER COLUMN id RESTART WITH ${value}")
+    void restartInvigilationShift(@Param("value") long value);
+
+    @Update("ALTER TABLE t_appointment ALTER COLUMN id RESTART WITH ${value}")
+    void restartAppointment(@Param("value") long value);
+
+    @Update("ALTER TABLE t_appointment_version ALTER COLUMN id RESTART WITH ${value}")
+    void restartAppointmentVersion(@Param("value") long value);
+
+    @Update("ALTER TABLE t_appointment_replacement ALTER COLUMN id RESTART WITH ${value}")
+    void restartAppointmentReplacement(@Param("value") long value);
+
+    @Update("ALTER TABLE t_settlement ALTER COLUMN id RESTART WITH ${value}")
+    void restartSettlement(@Param("value") long value);
+
+    @Update("ALTER TABLE t_settlement_item ALTER COLUMN id RESTART WITH ${value}")
+    void restartSettlementItem(@Param("value") long value);
+
+    @Update("ALTER TABLE t_settlement_adjustment ALTER COLUMN id RESTART WITH ${value}")
+    void restartSettlementAdjustment(@Param("value") long value);
 }
