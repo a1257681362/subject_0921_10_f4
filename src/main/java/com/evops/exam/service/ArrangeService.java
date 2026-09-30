@@ -22,6 +22,7 @@ import com.evops.mixalgo.dto.MixParams;
 import com.evops.mixalgo.engine.SeatingMixer;
 import com.evops.mixalgo.entity.MixAlgorithmVersion;
 import com.evops.mixalgo.service.MixAlgorithmService;
+import com.evops.staff.service.AppointmentService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.dao.DuplicateKeyException;
@@ -59,6 +60,7 @@ public class ArrangeService {
     private final RegistrationService registrationService;
     private final StageResultService stageResultService;
     private final MixAlgorithmService mixAlgorithmService;
+    private final AppointmentService appointmentService;
     private final ObjectMapper objectMapper;
 
     public ArrangeService(AdmissionTicketMapper ticketMapper,
@@ -69,6 +71,7 @@ public class ArrangeService {
                           RegistrationService registrationService,
                           StageResultService stageResultService,
                           MixAlgorithmService mixAlgorithmService,
+                          AppointmentService appointmentService,
                           ObjectMapper objectMapper) {
         this.ticketMapper = ticketMapper;
         this.runMapper = runMapper;
@@ -78,6 +81,7 @@ public class ArrangeService {
         this.registrationService = registrationService;
         this.stageResultService = stageResultService;
         this.mixAlgorithmService = mixAlgorithmService;
+        this.appointmentService = appointmentService;
         this.objectMapper = objectMapper;
     }
 
@@ -239,6 +243,16 @@ public class ArrangeService {
 
         plan.batch.setStatus(ExamConstants.BATCH_ARRANGED);
         batchService.updateBatch(plan.batch);
+
+        // 监考随排班生成聘任：按本次实际使用考场同步监考员槽位
+        // （重排时不再使用考场上的待执行聘任自动取消并留版本；派班由人事在聘任接口完成）
+        List<Long> usedRoomIds = new ArrayList<>();
+        for (SeatingMixer.Assignment a : ordered) {
+            if (!usedRoomIds.contains(a.roomId)) {
+                usedRoomIds.add(a.roomId);
+            }
+        }
+        appointmentService.syncForArrangement(plan.batch.getId(), usedRoomIds, operator);
 
         String stageLabel = ExamConstants.STAGE_REARRANGE.equals(stage) ? "整批重排" : "编排";
         stageResultService.record(plan.batch.getId(), stage, affected.size(),

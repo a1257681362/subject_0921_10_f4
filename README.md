@@ -144,3 +144,45 @@
 - 未编排批次导出返回 `ARRANGEMENT_RUN_NOT_FOUND`。
 
 > 新表 `t_mix_algorithm / t_mix_algorithm_version / t_arrangement_run` 已纳入工作区快照与回退；schema 版本号 `mix-1`。
+
+## 兼职监考聘任与结算工作区（staff-1）
+
+把"兼职老师月底拿小本本对监考费、跟人事窗口吵架"这段做进 evops-base：**监考随排班生成聘任 → 场次结束签到计津贴（角色不同标准不同）→ 换人留替换记录、缺勤不计费 → 月底一键出结算单（人事看全量、本人看自己）→ 确认锁定，要改走调整单**。
+
+视角约定：HTTP Basic 仍是 `bootstrap/bootstrap`；**人事全量**直接调接口；**本人视角**请求头带 `X-Staff-No: 工号`（也支持 `?staffNo=` 参数），聘任与结算单都只出本人的，看他人单据返回 `SETTLEMENT_FORBIDDEN`。
+
+### 16. 监考人员与角色津贴标准（模块 + 版本 + 状态）
+
+- `POST /api/invigilators`、`GET /api/invigilators?status=&keyword=`、`GET /api/invigilators/{id}`：监考人员花名册，`availableRoles` 为可担任角色清单（缺省仅 `INVIGILATOR`），停用后历史聘任保留。
+- 角色：`CHIEF_INVIGILATOR` 主考、`INVIGILATOR` 监考员、`PATROL` 巡考、`BACKUP` 备用；**角色不同标准不同**。
+- `POST /api/invigilator-stipends`、`GET /api/invigilator-stipends?projectCode=&roleCode=`：按**项目+角色**建津贴标准模块（同项目同角色仅一套）。
+- `POST /api/invigilator-stipends/{id}/versions`：草稿版本，`{ratePerSession, extraPerSession, effectiveFrom}`（金额不能为负）；`GET .../versions`、`GET /api/invigilator-stipends/versions/{versionId}`。
+- `POST .../versions/{versionId}/publish`（**DRAFT→ACTIVE**，同模块旧生效版自动 DISABLED，发布即冻结金额）、`POST .../disable`。计酬只认项目+角色当前 ACTIVE 版本；未建档 / 无生效版给可读错误，不隐式兜底，避免错发。
+
+### 17. 聘任记录模块（聘任记录 + 版本 + 状态）
+
+- **监考随排班生成聘任**：编排 / 整批重排落库后，按本次实际使用考场自动生成监考员聘任槽位；整批重排后不再使用考场上的**待执行**槽位自动取消（留 CANCEL 版本），已签到 / 缺勤记录保留。
+- 人事按批次两步生成（可带 roomId→工号 派班表）：`POST /api/appointments/generate/preview` → `POST /api/appointments/generate`；预检逐条列 CREATE / KEEP / CANCEL 与派班校验结果。
+- `POST /api/appointments/manual`：手工补聘主考 / 巡考等考点级槽位（`roomId` 留空）或指定考场监考员。
+- 状态：`PENDING` 待执行 → `CHECKED_IN` 已签到（计酬）/ `ABSENT` 缺勤（不计费）/ `CANCELLED` 取消；计酬状态 `NONE / CALCULATED`。
+- **换人留替换记录**：`POST /api/appointments/{id}/replace` `{staffNo, reason}`——只追加 `REPLACE` 版本（记 from/to），主表切当前版本、`rowVersion` 递增；已签到计酬的须先撤销签到，已进结算单的锁定拒绝。取消 `POST /api/appointments/{id}/cancel`。
+- `GET /api/appointments?batchId=&status=&payStatus=`（本人带头只看自己）、`GET /api/appointments/{id}`、`GET /api/appointments/{id}/versions`（APPOINT→REPLACE/CANCEL/REVOKE 版本链）。
+- 一人在同一批次只能有一个未结束聘任（`INVIGILATOR_BUSY`），角色须在其可担任清单内。
+
+### 18. 场次签到计津贴（缺勤不计费）
+
+- 两步：`POST /api/appointments/checkin/preview` → `POST /api/appointments/checkin`，批量 `items:[{appointmentId, result:PRESENT/LATE/ABSENT, note}]`。
+- **场次结束签到后计津贴**：按聘任上冻结的角色标准快照计酬；同批次第 N 场 = 单场标准 +(N-1)×超场补贴；金额、标准版本号、场次序号回写聘任。
+- `ABSENT` 缺勤：状态置 ABSENT、金额 0、不计酬（不出现在结算单）；`LATE` 迟到本版视同到场，需要扣减走结算调整单。
+- 重复签到逐条跳过并给原因；误签可 `POST /api/appointments/{id}/revoke-checkin?reason=`（未进结算单方可，回退待执行并留 REVOKE 版本）。
+- 排班时标准尚未发布不阻塞槽位生成（标准快照留空），签到时自动补快照；仍无生效版则 `STIPEND_RATE_MISSING` 拒绝并提示先发布标准。
+
+### 19. 月底结算单（一键出单、确认锁定、调整改账）
+
+- 一键两步：`POST /api/settlements/generate/preview` → `POST /api/settlements/generate`，body `{"period":"202609"}`；按批次**考试日期归月**，把当月 `CALCULATED` 聘任按人汇总，**一人一月一条**结算单，明细一行一场（批次/考场/角色/标准版本号/金额快照）。
+- 预检按人列 CREATE 新建 / REBUILD 草稿重建 / LOCKED 已确认跳过；草稿可重复出单覆盖（旧明细删除、聘任挂单标记解除后重建），**已确认锁定的单出单跳过**。
+- `POST /api/settlements/{id}/confirm`：**DRAFT→CONFIRMED 锁定**；锁定后聘任侧同步冻结（换人 / 撤签返回 `APPOINTMENT_SETTLED_LOCKED`）。
+- **要改走调整**：`POST /api/settlements/{id}/adjusts` `{adjustType:SUPPLEMENT/DEDUCT, amount, reason, appointmentId?}`——只追加调整单，补发为正、扣减为负，实时累加 `adjustAmount/totalAmount`，原场次明细不动。
+- 查询：`GET /api/settlements?period=&status=`（人事全量 / 本人带头只列自己）、`GET /api/settlements/{id}`（单头 + 场次明细 + 调整明细；本人只准看自己）。
+
+> 新表 `t_invigilator / t_invigilator_stipend(_version) / t_invigilator_appointment(_version) / t_invigilator_checkin / t_invigilator_settlement(_item/_adjust)` 已纳入工作区快照与回退；schema 版本号 `staff-1`。

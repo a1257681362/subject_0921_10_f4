@@ -17,6 +17,15 @@ import com.evops.grade.entity.GradeRuleVersion;
 import com.evops.grade.entity.ScoreChangeLog;
 import com.evops.grade.entity.ScoreNotification;
 import com.evops.grade.entity.ScoreReview;
+import com.evops.staff.entity.Invigilator;
+import com.evops.staff.entity.InvigilatorAppointment;
+import com.evops.staff.entity.InvigilatorAppointmentVersion;
+import com.evops.staff.entity.InvigilatorCheckin;
+import com.evops.staff.entity.InvigilatorSettlement;
+import com.evops.staff.entity.InvigilatorSettlementAdjust;
+import com.evops.staff.entity.InvigilatorSettlementItem;
+import com.evops.staff.entity.InvigilatorStipend;
+import com.evops.staff.entity.InvigilatorStipendVersion;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
@@ -40,6 +49,35 @@ public interface RestoreMapper {
 
     @Delete("DELETE FROM t_arrangement_run")
     void clearArrangementRuns();
+
+    // ---------- staff-1：监考聘任与结算（按外键依赖顺序清理） ----------
+
+    @Delete("DELETE FROM t_invigilator_settlement_adjust")
+    void clearSettlementAdjusts();
+
+    @Delete("DELETE FROM t_invigilator_settlement_item")
+    void clearSettlementItems();
+
+    @Delete("DELETE FROM t_invigilator_settlement")
+    void clearSettlements();
+
+    @Delete("DELETE FROM t_invigilator_checkin")
+    void clearCheckins();
+
+    @Delete("DELETE FROM t_invigilator_appointment_version")
+    void clearAppointmentVersions();
+
+    @Delete("DELETE FROM t_invigilator_appointment")
+    void clearAppointments();
+
+    @Delete("DELETE FROM t_invigilator_stipend_version")
+    void clearStipendVersions();
+
+    @Delete("DELETE FROM t_invigilator_stipend")
+    void clearStipends();
+
+    @Delete("DELETE FROM t_invigilator")
+    void clearInvigilators();
 
     @Delete("DELETE FROM t_mix_algorithm_version")
     void clearMixVersions();
@@ -200,6 +238,85 @@ public interface RestoreMapper {
             + "#{operator},#{executedAt},#{createBy},#{createTime},#{updateBy},#{updateTime})")
     void insertArrangementRun(ArrangementRun r);
 
+    // ---------- staff-1 写回 ----------
+
+    @Insert("INSERT INTO t_invigilator (id, staff_no, name, phone, id_no, organization, available_roles, "
+            + "status, remark, create_by, create_time, update_by, update_time) VALUES "
+            + "(#{id},#{staffNo},#{name},#{phone},#{idNo},#{organization},#{availableRoles},#{status},"
+            + "#{remark},#{createBy},#{createTime},#{updateBy},#{updateTime})")
+    void insertInvigilator(Invigilator i);
+
+    @Insert("INSERT INTO t_invigilator_stipend (id, code, name, project_code, role_code, remark, "
+            + "create_by, create_time, update_by, update_time) VALUES "
+            + "(#{id},#{code},#{name},#{projectCode},#{roleCode},#{remark},"
+            + "#{createBy},#{createTime},#{updateBy},#{updateTime})")
+    void insertStipend(InvigilatorStipend s);
+
+    @Insert("INSERT INTO t_invigilator_stipend_version (id, stipend_id, version_no, status, rate_per_session, "
+            + "extra_per_session, effective_from, remark, published_by, published_at, disabled_by, disabled_at, "
+            + "operator, create_by, create_time, update_by, update_time) VALUES "
+            + "(#{id},#{stipendId},#{versionNo},#{status},#{ratePerSession},#{extraPerSession},"
+            + "#{effectiveFrom},#{remark},#{publishedBy},#{publishedAt},#{disabledBy},#{disabledAt},"
+            + "#{operator},#{createBy},#{createTime},#{updateBy},#{updateTime})")
+    void insertStipendVersion(InvigilatorStipendVersion v);
+
+    @Insert("INSERT INTO t_invigilator_appointment (id, appointment_no, batch_id, room_id, slot_type, role_code, "
+            + "current_version_no, invigilator_id, source, status, pay_status, stipend_version_id, "
+            + "stipend_version_no, rate_snapshot, extra_snapshot, amount, session_index_in_batch, "
+            + "settled_in_statement_id, checked_in_at, checked_in_by, absent_marked_by, absent_marked_at, "
+            + "row_version, operator, create_by, create_time, update_by, update_time) VALUES "
+            + "(#{id},#{appointmentNo},#{batchId},#{roomId},#{slotType},#{roleCode},#{currentVersionNo},"
+            + "#{invigilatorId},#{source},#{status},#{payStatus},#{stipendVersionId},#{stipendVersionNo},"
+            + "#{rateSnapshot},#{extraSnapshot},#{amount},#{sessionIndexInBatch},#{settledInStatementId},"
+            + "#{checkedInAt},#{checkedInBy},#{absentMarkedBy},#{absentMarkedAt},#{rowVersion},#{operator},"
+            + "#{createBy},#{createTime},#{updateBy},#{updateTime})")
+    void insertAppointment(InvigilatorAppointment a);
+
+    @Insert("INSERT INTO t_invigilator_appointment_version (id, appointment_id, appointment_no, version_seq, "
+            + "version_no, change_type, status, invigilator_id, from_invigilator_id, to_invigilator_id, "
+            + "role_code, stipend_version_id, stipend_version_no, rate_snapshot, extra_snapshot, pay_status, "
+            + "amount, reason, operator, changed_at, create_by, create_time, update_by, update_time) VALUES "
+            + "(#{id},#{appointmentId},#{appointmentNo},#{versionSeq},#{versionNo},#{changeType},#{status},"
+            + "#{invigilatorId},#{fromInvigilatorId},#{toInvigilatorId},#{roleCode},#{stipendVersionId},"
+            + "#{stipendVersionNo},#{rateSnapshot},#{extraSnapshot},#{payStatus},#{amount},#{reason},"
+            + "#{operator},#{changedAt},#{createBy},#{createTime},#{updateBy},#{updateTime})")
+    void insertAppointmentVersion(InvigilatorAppointmentVersion v);
+
+    @Insert("INSERT INTO t_invigilator_checkin (id, appointment_id, batch_id, room_id, invigilator_id, "
+            + "role_code, result, checkin_at, operator, note, create_by, create_time, update_by, update_time) "
+            + "VALUES (#{id},#{appointmentId},#{batchId},#{roomId},#{invigilatorId},#{roleCode},#{result},"
+            + "#{checkinAt},#{operator},#{note},#{createBy},#{createTime},#{updateBy},#{updateTime})")
+    void insertCheckin(InvigilatorCheckin c);
+
+    @Insert("INSERT INTO t_invigilator_settlement (id, statement_no, period, invigilator_id, staff_no, name, "
+            + "organization, status, session_amount, adjust_amount, total_amount, session_count, adjust_count, "
+            + "generated_by, generated_at, confirmed_by, confirmed_at, remark, "
+            + "create_by, create_time, update_by, update_time) VALUES "
+            + "(#{id},#{statementNo},#{period},#{invigilatorId},#{staffNo},#{name},#{organization},#{status},"
+            + "#{sessionAmount},#{adjustAmount},#{totalAmount},#{sessionCount},#{adjustCount},"
+            + "#{generatedBy},#{generatedAt},#{confirmedBy},#{confirmedAt},#{remark},"
+            + "#{createBy},#{createTime},#{updateBy},#{updateTime})")
+    void insertSettlement(InvigilatorSettlement s);
+
+    @Insert("INSERT INTO t_invigilator_settlement_item (id, statement_id, period, invigilator_id, "
+            + "appointment_id, appointment_no, appointment_version_no, batch_id, batch_code, batch_name, "
+            + "exam_date, room_id, room_no, role_code, stipend_version_no, rate_snapshot, "
+            + "session_index_in_batch, item_type, amount, remark, "
+            + "create_by, create_time, update_by, update_time) VALUES "
+            + "(#{id},#{statementId},#{period},#{invigilatorId},#{appointmentId},#{appointmentNo},"
+            + "#{appointmentVersionNo},#{batchId},#{batchCode},#{batchName},#{examDate},#{roomId},#{roomNo},"
+            + "#{roleCode},#{stipendVersionNo},#{rateSnapshot},#{sessionIndexInBatch},#{itemType},#{amount},"
+            + "#{remark},#{createBy},#{createTime},#{updateBy},#{updateTime})")
+    void insertSettlementItem(InvigilatorSettlementItem i);
+
+    @Insert("INSERT INTO t_invigilator_settlement_adjust (id, statement_id, period, invigilator_id, adjust_no, "
+            + "appointment_id, adjust_type, amount, reason, status, operator, applied_at, "
+            + "create_by, create_time, update_by, update_time) VALUES "
+            + "(#{id},#{statementId},#{period},#{invigilatorId},#{adjustNo},#{appointmentId},#{adjustType},"
+            + "#{amount},#{reason},#{status},#{operator},#{appliedAt},"
+            + "#{createBy},#{createTime},#{updateBy},#{updateTime})")
+    void insertSettlementAdjust(InvigilatorSettlementAdjust a);
+
     // 显式插 id 后必须把 IDENTITY 序列推到最大 id 之上，否则后续新增会主键冲突
     @Select("SELECT COALESCE(MAX(id),0) FROM t_exam_site")
     long maxSiteId();
@@ -252,6 +369,33 @@ public interface RestoreMapper {
     @Select("SELECT COALESCE(MAX(id),0) FROM t_arrangement_run")
     long maxArrangementRunId();
 
+    @Select("SELECT COALESCE(MAX(id),0) FROM t_invigilator")
+    long maxInvigilatorId();
+
+    @Select("SELECT COALESCE(MAX(id),0) FROM t_invigilator_stipend")
+    long maxStipendId();
+
+    @Select("SELECT COALESCE(MAX(id),0) FROM t_invigilator_stipend_version")
+    long maxStipendVersionId();
+
+    @Select("SELECT COALESCE(MAX(id),0) FROM t_invigilator_appointment")
+    long maxAppointmentId();
+
+    @Select("SELECT COALESCE(MAX(id),0) FROM t_invigilator_appointment_version")
+    long maxAppointmentVersionId();
+
+    @Select("SELECT COALESCE(MAX(id),0) FROM t_invigilator_checkin")
+    long maxCheckinId();
+
+    @Select("SELECT COALESCE(MAX(id),0) FROM t_invigilator_settlement")
+    long maxSettlementId();
+
+    @Select("SELECT COALESCE(MAX(id),0) FROM t_invigilator_settlement_item")
+    long maxSettlementItemId();
+
+    @Select("SELECT COALESCE(MAX(id),0) FROM t_invigilator_settlement_adjust")
+    long maxSettlementAdjustId();
+
     @Update("ALTER TABLE t_exam_site ALTER COLUMN id RESTART WITH ${value}")
     void restartSite(@Param("value") long value);
 
@@ -302,4 +446,31 @@ public interface RestoreMapper {
 
     @Update("ALTER TABLE t_arrangement_run ALTER COLUMN id RESTART WITH ${value}")
     void restartArrangementRun(@Param("value") long value);
+
+    @Update("ALTER TABLE t_invigilator ALTER COLUMN id RESTART WITH ${value}")
+    void restartInvigilator(@Param("value") long value);
+
+    @Update("ALTER TABLE t_invigilator_stipend ALTER COLUMN id RESTART WITH ${value}")
+    void restartStipend(@Param("value") long value);
+
+    @Update("ALTER TABLE t_invigilator_stipend_version ALTER COLUMN id RESTART WITH ${value}")
+    void restartStipendVersion(@Param("value") long value);
+
+    @Update("ALTER TABLE t_invigilator_appointment ALTER COLUMN id RESTART WITH ${value}")
+    void restartAppointment(@Param("value") long value);
+
+    @Update("ALTER TABLE t_invigilator_appointment_version ALTER COLUMN id RESTART WITH ${value}")
+    void restartAppointmentVersion(@Param("value") long value);
+
+    @Update("ALTER TABLE t_invigilator_checkin ALTER COLUMN id RESTART WITH ${value}")
+    void restartCheckin(@Param("value") long value);
+
+    @Update("ALTER TABLE t_invigilator_settlement ALTER COLUMN id RESTART WITH ${value}")
+    void restartSettlement(@Param("value") long value);
+
+    @Update("ALTER TABLE t_invigilator_settlement_item ALTER COLUMN id RESTART WITH ${value}")
+    void restartSettlementItem(@Param("value") long value);
+
+    @Update("ALTER TABLE t_invigilator_settlement_adjust ALTER COLUMN id RESTART WITH ${value}")
+    void restartSettlementAdjust(@Param("value") long value);
 }

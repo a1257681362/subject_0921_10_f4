@@ -26,6 +26,24 @@ import com.evops.mixalgo.entity.MixAlgorithm;
 import com.evops.mixalgo.entity.MixAlgorithmVersion;
 import com.evops.mixalgo.mapper.MixAlgorithmMapper;
 import com.evops.mixalgo.mapper.MixAlgorithmVersionMapper;
+import com.evops.staff.entity.Invigilator;
+import com.evops.staff.entity.InvigilatorAppointment;
+import com.evops.staff.entity.InvigilatorAppointmentVersion;
+import com.evops.staff.entity.InvigilatorCheckin;
+import com.evops.staff.entity.InvigilatorSettlement;
+import com.evops.staff.entity.InvigilatorSettlementAdjust;
+import com.evops.staff.entity.InvigilatorSettlementItem;
+import com.evops.staff.entity.InvigilatorStipend;
+import com.evops.staff.entity.InvigilatorStipendVersion;
+import com.evops.staff.mapper.InvigilatorAppointmentMapper;
+import com.evops.staff.mapper.InvigilatorAppointmentVersionMapper;
+import com.evops.staff.mapper.InvigilatorCheckinMapper;
+import com.evops.staff.mapper.InvigilatorMapper;
+import com.evops.staff.mapper.InvigilatorSettlementAdjustMapper;
+import com.evops.staff.mapper.InvigilatorSettlementItemMapper;
+import com.evops.staff.mapper.InvigilatorSettlementMapper;
+import com.evops.staff.mapper.InvigilatorStipendMapper;
+import com.evops.staff.mapper.InvigilatorStipendVersionMapper;
 import com.evops.grade.mapper.ExamScoreMapper;
 import com.evops.grade.mapper.GradeRuleMapper;
 import com.evops.grade.mapper.GradeRuleVersionMapper;
@@ -82,6 +100,15 @@ public class WorkspaceVersionService {
     private final MixAlgorithmMapper mixAlgorithmMapper;
     private final MixAlgorithmVersionMapper mixVersionMapper;
     private final ArrangementRunMapper arrangementRunMapper;
+    private final InvigilatorMapper invigilatorMapper;
+    private final InvigilatorStipendMapper stipendMapper;
+    private final InvigilatorStipendVersionMapper stipendVersionMapper;
+    private final InvigilatorAppointmentMapper appointmentMapper;
+    private final InvigilatorAppointmentVersionMapper appointmentVersionMapper;
+    private final InvigilatorCheckinMapper checkinMapper;
+    private final InvigilatorSettlementMapper settlementMapper;
+    private final InvigilatorSettlementItemMapper settlementItemMapper;
+    private final InvigilatorSettlementAdjustMapper settlementAdjustMapper;
     private final ObjectMapper objectMapper;
     private final RestoreMapper restoreMapper;
 
@@ -104,6 +131,15 @@ public class WorkspaceVersionService {
                                    MixAlgorithmMapper mixAlgorithmMapper,
                                    MixAlgorithmVersionMapper mixVersionMapper,
                                    ArrangementRunMapper arrangementRunMapper,
+                                   InvigilatorMapper invigilatorMapper,
+                                   InvigilatorStipendMapper stipendMapper,
+                                   InvigilatorStipendVersionMapper stipendVersionMapper,
+                                   InvigilatorAppointmentMapper appointmentMapper,
+                                   InvigilatorAppointmentVersionMapper appointmentVersionMapper,
+                                   InvigilatorCheckinMapper checkinMapper,
+                                   InvigilatorSettlementMapper settlementMapper,
+                                   InvigilatorSettlementItemMapper settlementItemMapper,
+                                   InvigilatorSettlementAdjustMapper settlementAdjustMapper,
                                    ObjectMapper objectMapper,
                                    RestoreMapper restoreMapper) {
         this.versionMapper = versionMapper;
@@ -125,6 +161,15 @@ public class WorkspaceVersionService {
         this.mixAlgorithmMapper = mixAlgorithmMapper;
         this.mixVersionMapper = mixVersionMapper;
         this.arrangementRunMapper = arrangementRunMapper;
+        this.invigilatorMapper = invigilatorMapper;
+        this.stipendMapper = stipendMapper;
+        this.stipendVersionMapper = stipendVersionMapper;
+        this.appointmentMapper = appointmentMapper;
+        this.appointmentVersionMapper = appointmentVersionMapper;
+        this.checkinMapper = checkinMapper;
+        this.settlementMapper = settlementMapper;
+        this.settlementItemMapper = settlementItemMapper;
+        this.settlementAdjustMapper = settlementAdjustMapper;
         this.objectMapper = objectMapper;
         this.restoreMapper = restoreMapper;
     }
@@ -252,6 +297,15 @@ public class WorkspaceVersionService {
             data.put("mixAlgorithms", mixAlgorithmMapper.selectList(null));
             data.put("mixVersions", mixVersionMapper.selectList(null));
             data.put("arrangementRuns", arrangementRunMapper.selectList(null));
+            data.put("invigilators", invigilatorMapper.selectList(null));
+            data.put("stipends", stipendMapper.selectList(null));
+            data.put("stipendVersions", stipendVersionMapper.selectList(null));
+            data.put("appointments", appointmentMapper.selectList(null));
+            data.put("appointmentVersions", appointmentVersionMapper.selectList(null));
+            data.put("checkins", checkinMapper.selectList(null));
+            data.put("settlements", settlementMapper.selectList(null));
+            data.put("settlementItems", settlementItemMapper.selectList(null));
+            data.put("settlementAdjusts", settlementAdjustMapper.selectList(null));
             return objectMapper.writeValueAsString(data);
         } catch (Exception e) {
             throw new BusinessException("SNAPSHOT_FAILED", "生成工作区快照失败：" + e.getMessage());
@@ -269,6 +323,16 @@ public class WorkspaceVersionService {
         // 先清空业务表（版本表本身不动），再按快照原样写回。
         // 用显式带主键的原生 INSERT：准考证、成绩等表的外键依赖原始 id，
         // H2 的 GENERATED BY DEFAULT 允许指定 id 插入。
+        // staff 表按外键依赖顺序先清（结算→签到→聘任版本→聘任→标准版本→标准→人员）。
+        restoreMapper.clearSettlementAdjusts();
+        restoreMapper.clearSettlementItems();
+        restoreMapper.clearSettlements();
+        restoreMapper.clearCheckins();
+        restoreMapper.clearAppointmentVersions();
+        restoreMapper.clearAppointments();
+        restoreMapper.clearStipendVersions();
+        restoreMapper.clearStipends();
+        restoreMapper.clearInvigilators();
         restoreMapper.clearNotifications();
         restoreMapper.clearArrangementRuns();
         restoreMapper.clearMixVersions();
@@ -338,6 +402,33 @@ public class WorkspaceVersionService {
         for (ArrangementRun r : nullSafe(data.arrangementRuns)) {
             restoreMapper.insertArrangementRun(r);
         }
+        for (Invigilator i : nullSafe(data.invigilators)) {
+            restoreMapper.insertInvigilator(i);
+        }
+        for (InvigilatorStipend s : nullSafe(data.stipends)) {
+            restoreMapper.insertStipend(s);
+        }
+        for (InvigilatorStipendVersion v : nullSafe(data.stipendVersions)) {
+            restoreMapper.insertStipendVersion(v);
+        }
+        for (InvigilatorAppointment a : nullSafe(data.appointments)) {
+            restoreMapper.insertAppointment(a);
+        }
+        for (InvigilatorAppointmentVersion v : nullSafe(data.appointmentVersions)) {
+            restoreMapper.insertAppointmentVersion(v);
+        }
+        for (InvigilatorCheckin c : nullSafe(data.checkins)) {
+            restoreMapper.insertCheckin(c);
+        }
+        for (InvigilatorSettlement s : nullSafe(data.settlements)) {
+            restoreMapper.insertSettlement(s);
+        }
+        for (InvigilatorSettlementItem i : nullSafe(data.settlementItems)) {
+            restoreMapper.insertSettlementItem(i);
+        }
+        for (InvigilatorSettlementAdjust a : nullSafe(data.settlementAdjusts)) {
+            restoreMapper.insertSettlementAdjust(a);
+        }
 
         // 显式插 id 不推进 IDENTITY，统一把序列重置到 MAX(id)+1，避免回退后新增撞主键
         restoreMapper.restartSite(restoreMapper.maxSiteId() + 1);
@@ -357,6 +448,15 @@ public class WorkspaceVersionService {
         restoreMapper.restartMixAlgorithm(restoreMapper.maxMixAlgorithmId() + 1);
         restoreMapper.restartMixVersion(restoreMapper.maxMixVersionId() + 1);
         restoreMapper.restartArrangementRun(restoreMapper.maxArrangementRunId() + 1);
+        restoreMapper.restartInvigilator(restoreMapper.maxInvigilatorId() + 1);
+        restoreMapper.restartStipend(restoreMapper.maxStipendId() + 1);
+        restoreMapper.restartStipendVersion(restoreMapper.maxStipendVersionId() + 1);
+        restoreMapper.restartAppointment(restoreMapper.maxAppointmentId() + 1);
+        restoreMapper.restartAppointmentVersion(restoreMapper.maxAppointmentVersionId() + 1);
+        restoreMapper.restartCheckin(restoreMapper.maxCheckinId() + 1);
+        restoreMapper.restartSettlement(restoreMapper.maxSettlementId() + 1);
+        restoreMapper.restartSettlementItem(restoreMapper.maxSettlementItemId() + 1);
+        restoreMapper.restartSettlementAdjust(restoreMapper.maxSettlementAdjustId() + 1);
     }
 
     private <T> List<T> nullSafe(List<T> list) {
@@ -438,5 +538,14 @@ public class WorkspaceVersionService {
         public List<MixAlgorithm> mixAlgorithms;
         public List<MixAlgorithmVersion> mixVersions;
         public List<ArrangementRun> arrangementRuns;
+        public List<Invigilator> invigilators;
+        public List<InvigilatorStipend> stipends;
+        public List<InvigilatorStipendVersion> stipendVersions;
+        public List<InvigilatorAppointment> appointments;
+        public List<InvigilatorAppointmentVersion> appointmentVersions;
+        public List<InvigilatorCheckin> checkins;
+        public List<InvigilatorSettlement> settlements;
+        public List<InvigilatorSettlementItem> settlementItems;
+        public List<InvigilatorSettlementAdjust> settlementAdjusts;
     }
 }
